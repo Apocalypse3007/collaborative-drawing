@@ -129,5 +129,5 @@ app.get("/chats/:roomId", async (req, res) => {
         messages
     })
 })
-app.listen(3001);
+app.listen(3002);
 

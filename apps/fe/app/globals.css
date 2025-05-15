@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: 220 30% 8%; /* deep blue-black */
+    --foreground: 210 40% 98%;
+    --card: 222 28% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 28% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 220 100% 60%; /* vibrant blue */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 16% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 16% 18%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 210 100% 65%; /* lighter blue */
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 16% 18%;
+    --input: 220 16% 18%;
+    --ring: 220 100% 60%;
+    --radius: 0.75rem;
+    --font-sans: 'Inter', 'Geist', 'Segoe UI', 'Arial', 'sans-serif';
+  }
+
+  .dark {
+    --background: 220 30% 8%;
+    --foreground: 210 40% 98%;
+    --card: 222 28% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 28% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 220 100% 60%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 16% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 16% 18%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 210 100% 65%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 16% 18%;
+    --input: 220 16% 18%;
+    --ring: 220 100% 60%;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* Custom translucent scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(37, 99, 235, 0.25); /* blue-600, translucent */
+  border-radius: 8px;
+  border: 2px solid rgba(30, 41, 59, 0.2); /* dark border for contrast */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.45);
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.1); /* very dark, nearly transparent */
+}
+
+/* Firefox */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(37,99,235,0.25) rgba(15,23,42,0.1);
+}
