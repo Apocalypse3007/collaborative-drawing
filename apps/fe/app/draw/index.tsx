@@ -3,8 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import p5 from "p5";
 import axios from "axios";
-
-// Define shape types
+import { HTTP_BACKEND } from "@/config";
 type Shape = {
   type: "rect";
   x: number;
@@ -32,8 +31,6 @@ type Shape = {
   y3: number;
 };
 
-const HTTP_BACKEND = process.env.NEXT_PUBLIC_HTTP_BACKEND || "http://localhost:3001";
-const WS_BACKEND = process.env.NEXT_PUBLIC_WS_BACKEND || "ws://localhost:8080";
 
 async function getExistingShapes(roomId: string): Promise<Shape[]> {
   try {
@@ -56,11 +53,37 @@ async function getExistingShapes(roomId: string): Promise<Shape[]> {
   }
 }
 
+async function sendShapeToBackend(roomId: string, shape: Shape) {
+  try {
+    await axios.post(`${HTTP_BACKEND}/chats/${roomId}`, {
+      type: "chat",
+      message: JSON.stringify(shape)
+    });
+  } catch (error) {
+    console.error("Error sending shape:", error);
+  }
+}
+
+function sendShapeToBackendAndSocket(roomId: string, shape: Shape, socket?: WebSocket) {
+  // Send via HTTP
+  sendShapeToBackend(roomId, shape);
+  // Send via WebSocket if available
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(
+      JSON.stringify({
+        type: "chat",
+        message: JSON.stringify(shape),
+        roomId: roomId
+      })
+    );
+  }
+}
+
 function drawAllObjects(p: p5, objects: Shape[]) {
-  p.clear(0, 0, 0, 255); // Clear with black background
-  p.background(0); // Set black background
-  p.stroke(255); // Set white stroke
-  p.noFill(); // No fill for shapes
+  p.clear(0, 0, 0, 255); 
+  p.background(0); 
+  p.stroke(255); 
+  p.noFill(); 
 
   for (const obj of objects) {
     p.push();
@@ -77,12 +100,28 @@ function drawAllObjects(p: p5, objects: Shape[]) {
   }
 }
 
-interface CanvasPageProps {
-  roomId: string;
+function drawShape(p: p5, shape: Shape) {
+  p.push();
+  p.stroke(255);
+  p.noFill();
+  if (shape.type === "rect") {
+    p.rect(shape.x, shape.y, shape.width, shape.height);
+  } else if (shape.type === "circle") {
+    p.circle(shape.centerX, shape.centerY, shape.radius * 2);
+  } else if (shape.type === "pencil") {
+    p.line(shape.startX, shape.startY, shape.endX, shape.endY);
+  } else if (shape.type === "triangle") {
+    p.triangle(shape.x1, shape.y1, shape.x2, shape.y2, shape.x3, shape.y3);
+  }
+  p.pop();
 }
 
-export default function CanvasPage({ roomId }: CanvasPageProps) {
-  // Add validation and logging for roomId
+interface CanvasPageProps {
+  roomId: string;
+  socket: WebSocket ;
+}
+
+export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
   useEffect(() => {
     console.log("CanvasPage received roomId:", roomId);
     if (!roomId) {
@@ -98,114 +137,60 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
       return;
     }
   }, [roomId]);
+  
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === "chat") {
+      const parsedshape = JSON.parse(message.message)
+      shapesRef.current.push(parsedshape); 
+      if (p5InstanceRef.current) {
+        drawShape(p5InstanceRef.current, parsedshape);
+      }
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
   const toolRef = useRef<"pencil" | "rect" | "circle" | "triangle">("pencil");
-  const objectsRef = useRef<Shape[]>([]);
-  const socketRef = useRef<WebSocket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const shapesRef = useRef<Shape[]>([]);
   const [tool, setTool] = useState<"pencil" | "rect" | "circle" | "triangle">("pencil");
+  const [shapesLoaded, setShapesLoaded] = useState(false);
 
   useEffect(() => {
     toolRef.current = tool;
   }, [tool]);
 
-  
+  // Load existing shapes when socket connects (only once)
   useEffect(() => {
-    if (!roomId) {
-      console.error("Cannot initialize WebSocket: No roomId provided");
-      return;
-    }
-
-    console.log("Initializing WebSocket connection for room:", roomId);
-    
-    // Load existing shapes
+    if (!socket || shapesLoaded) return;
     const loadShapes = async () => {
       try {
-        console.log("Fetching shapes for room:", roomId);
         const shapes = await getExistingShapes(roomId);
-        console.log("Loaded shapes:", shapes.length);
-        objectsRef.current = shapes;
+        shapesRef.current = shapes;
         if (p5InstanceRef.current) {
-          drawAllObjects(p5InstanceRef.current, objectsRef.current);
+          drawAllObjects(p5InstanceRef.current, shapesRef.current);
         }
+        setShapesLoaded(true);
       } catch (error) {
         console.error("Error loading shapes for room:", roomId, error);
       }
     };
+    loadShapes();
+  }, [socket, roomId, shapesLoaded]);
 
-    // Connect to WebSocket
-    const wsUrl = `${WS_BACKEND}/ws?roomId=${roomId}`;
-    console.log("Connecting to WebSocket:", wsUrl);
-    const ws = new WebSocket(wsUrl);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("Connected to WebSocket for room:", roomId);
-      setIsConnected(true);
-      loadShapes();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("Received WebSocket message for room:", roomId, data);
-        if (data.type === "chat") {
-          const messageData = JSON.parse(data.message);
-          if (messageData.shape) {
-            objectsRef.current.push(messageData.shape);
-            if (p5InstanceRef.current) {
-              drawAllObjects(p5InstanceRef.current, objectsRef.current);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error processing WebSocket message for room:", roomId, error);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("Disconnected from WebSocket for room:", roomId);
-      setIsConnected(false);
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error for room:", roomId, error);
-    };
-
-    return () => {
-      console.log("Cleaning up WebSocket connection for room:", roomId);
-      ws.close();
-    };
-  }, [roomId]);
-
-  // Send shape to backend
-  const sendShapeToBackend = (shape: Shape) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({
-        type: "chat",
-        message: JSON.stringify({ shape }),
-        roomId
-      }));
-    }
-  };
-
-  // Clear canvas handler
-  const handleClearCanvas = () => {
+  const handleClearCanvas = async () => {
     const p = p5InstanceRef.current;
-    objectsRef.current = [];
+    shapesRef.current = [];
     if (p) {
       p.clear();
       p.background(0);
     }
-    // Notify other users about canvas clear
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({
-        type: "chat",
-        message: JSON.stringify({ type: "clear" }),
-        roomId
-      }));
+    try {
+      await axios.post(`${HTTP_BACKEND}/chats/${roomId}`, {
+        message: JSON.stringify({ type: "clear" })
+      });
+    } catch (error) {
+      console.error("Error clearing canvas:", error);
     }
   };
 
@@ -257,8 +242,8 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
         selectedObjectIndex = null;
 
         // Check for shape selection
-        for (let i = objectsRef.current.length - 1; i >= 0; i--) {
-          const obj = objectsRef.current[i];
+        for (let i = shapesRef.current.length - 1; i >= 0; i--) {
+          const obj = shapesRef.current[i];
           if (
             (obj.type === "rect" && isInsideRect(p.mouseX, p.mouseY, obj)) ||
             (obj.type === "circle" && isInsideCircle(p.mouseX, p.mouseY, obj)) ||
@@ -277,7 +262,7 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
           }
         }
 
-        // Start drawing new shape
+
         isDrawingNew = true;
         startX = p.mouseX;
         startY = p.mouseY;
@@ -292,8 +277,7 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
       p.mouseDragged = () => {
         const currentTool = toolRef.current;
         if (selectedObjectIndex !== null) {
-          // Move selected shape
-          const obj = objectsRef.current[selectedObjectIndex];
+          const obj = shapesRef.current[selectedObjectIndex];
           if (obj.type === "rect") {
             obj.x = p.mouseX - dragOffset.x;
             obj.y = p.mouseY - dragOffset.y;
@@ -311,7 +295,7 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
             obj.y3 += dy;
             dragOffset = { x: p.mouseX - obj.x1, y: p.mouseY - obj.y1 };
           }
-          drawAllObjects(p, objectsRef.current);
+          drawAllObjects(p, shapesRef.current);
           return;
         }
 
@@ -330,15 +314,15 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
             endX: p.mouseX,
             endY: p.mouseY
           };
-          objectsRef.current.push(newShape);
-          sendShapeToBackend(newShape);
+          shapesRef.current.push(newShape);
+          sendShapeToBackendAndSocket(roomId, newShape, socket);
           
           // Update previous position
           prevX = p.mouseX;
           prevY = p.mouseY;
         } else {
           // Preview shape while dragging
-          drawAllObjects(p, objectsRef.current);
+          drawAllObjects(p, shapesRef.current);
           p.stroke(255);
           if (currentTool === "rect") {
             const width = p.mouseX - startX;
@@ -412,18 +396,18 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
         }
 
         if (newShape) {
-          objectsRef.current.push(newShape);
-          sendShapeToBackend(newShape);
+          shapesRef.current.push(newShape);
+          sendShapeToBackendAndSocket(roomId, newShape, socket);
         }
 
-        drawAllObjects(p, objectsRef.current);
+        drawAllObjects(p, shapesRef.current);
         isDrawingNew = false;
         drawing = false;
       };
 
       p.windowResized = () => {
         p.resizeCanvas(window.innerWidth, window.innerHeight);
-        drawAllObjects(p, objectsRef.current);
+        drawAllObjects(p, shapesRef.current);
       };
     };
 
@@ -489,12 +473,6 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
         </label>
 
         <div style={{ marginLeft: 16, display: "inline-block" }}>
-          <span style={{ 
-            color: isConnected ? "#22c55e" : "#ef4444",
-            marginRight: 8 
-          }}>
-            {isConnected ? "Connected" : "Disconnected"}
-          </span>
           <button 
             style={{
               padding: '4px 12px', 
@@ -516,5 +494,4 @@ export default function CanvasPage({ roomId }: CanvasPageProps) {
     </div>
   );
 }
-
 

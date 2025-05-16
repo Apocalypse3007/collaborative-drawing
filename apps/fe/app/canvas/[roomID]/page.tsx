@@ -1,7 +1,5 @@
-import CanvasPageWrapper from "@/app/draw/canvas";
-
-
-
+//extracts the roomId from the URL and passes it to the ws_Canvas component
+import WSCanvas from "@/app/draw/ws_canvas";
 export default async function Page({ params }:  {
     params: { 
         roomId: string 
@@ -9,5 +7,5 @@ export default async function Page({ params }:  {
 }) {
     const  roomId  = (await params). roomId ;
   console.log("CanvasPage", roomId);
-  return <CanvasPageWrapper roomId={roomId} />;
+  return <WSCanvas roomId={roomId} />;
 }

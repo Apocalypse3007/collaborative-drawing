@@ -7,7 +7,6 @@ import FeatureSection from './components/FeatureSection';
 import HowItWorks from './components/HowItWorks';
 import ShowcaseSection from './components/ShowcaseSection';
 import PricingSection from './components/PricingSection';
-import CtaSection from './components/CtaSection';
 import Footer from './components/Footer';
 
 const navItems = [
