@@ -33,25 +33,32 @@ type Shape = {
 
 
 async function getExistingShapes(roomId: string): Promise<Shape[]> {
+  // drop any trailing slashes so we never generate //chats/…
+  const base = HTTP_BACKEND.replace(/\/+$/, "");
+  const url  = `${base}/chats/${roomId}`;
+
   try {
-    const res = await axios.get(`${HTTP_BACKEND}/chats/${roomId}`);
-    const messages = res.data.messages;
-    return messages
-      .map((x: { message: string }) => {
-        try {
-          const messageData = JSON.parse(x.message);
-          return messageData.shape;
-        } catch (e) {
-          console.error("Error parsing shape:", e);
-          return null;
-        }
-      })
-      .filter((shape: Shape | null) => shape !== null);
-  } catch (error) {
-    console.error("Error fetching shapes:", error);
-    return [];
+    const { data } = await axios.get<{ messages: { message: string }[] }>(url);
+
+    return data.messages.flatMap(({ message }) => {
+      try {
+        const payload = JSON.parse(message);
+        if (Array.isArray(payload))           return payload;          // message is [Shape]
+        if (Array.isArray(payload?.shapes))   return payload.shapes;   // { shapes: [...] }
+        return [payload];                                              // single Shape
+      } catch {
+        return [];                                                     // skip bad JSON
+      }
+    });
+  } catch (err: any) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      console.warn(`GET ${url} → 404 (room not found)`);
+      return [];                               // empty canvas instead of crash
+    }
+    throw err;                                // bubble up anything else
   }
 }
+
 
 async function sendShapeToBackend(roomId: string, shape: Shape) {
   try {
@@ -138,6 +145,7 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
     }
   }, [roomId]);
   
+
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "chat") {
@@ -148,7 +156,6 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
       }
     }
   }
-
   const containerRef = useRef<HTMLDivElement>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
   const toolRef = useRef<"pencil" | "rect" | "circle" | "triangle">("pencil");
@@ -162,22 +169,21 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
 
   // Load existing shapes when socket connects (only once)
   useEffect(() => {
-    if (!socket || shapesLoaded) return;
+    if (!socket || shapesLoaded || !p5InstanceRef.current) return;   
     const loadShapes = async () => {
       try {
         const shapes = await getExistingShapes(roomId);
         shapesRef.current = shapes;
-        if (p5InstanceRef.current) {
-          drawAllObjects(p5InstanceRef.current, shapesRef.current);
-        }
+  
+        drawAllObjects(p5InstanceRef.current!, shapesRef.current);   
         setShapesLoaded(true);
       } catch (error) {
         console.error("Error loading shapes for room:", roomId, error);
       }
     };
     loadShapes();
-  }, [socket, roomId, shapesLoaded]);
-
+  }, [socket, roomId, shapesLoaded, p5InstanceRef.current]);        
+  
   const handleClearCanvas = async () => {
     const p = p5InstanceRef.current;
     shapesRef.current = [];

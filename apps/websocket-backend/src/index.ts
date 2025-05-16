@@ -69,6 +69,22 @@ wss.on('connection', function connection(ws, request) {
     if (parsedData.type === "join_room") {
       const user = users.find(u => u.ws === ws);
       user?.rooms.push(parsedData.roomId);
+      // Fetch previous messages for the room and send to the user
+      try {
+        const previousMessages = await prismaClient.chat.findMany({
+          where: { roomID: Number(parsedData.roomId) },
+          orderBy: { id: 'asc' },
+        });
+        for (const chat of previousMessages) {
+          ws.send(JSON.stringify({
+            type: "chat",
+            message: chat.message,
+            roomId: parsedData.roomId
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to send previous messages to user:", err);
+      }
     }
     if (parsedData.type === "leave_room") {
       const user = users.find(u => u.ws === ws);
@@ -84,7 +100,6 @@ wss.on('connection', function connection(ws, request) {
     if (parsedData.type === "chat") {
       const roomId = parsedData.roomId;
       const message = parsedData.message;
-
 
       users.forEach(user => {
         if (user.rooms.includes(roomId)) {
