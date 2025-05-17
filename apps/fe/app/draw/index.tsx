@@ -230,6 +230,19 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
         p.noFill();
       };
 
+      // Helper function to constrain coordinates within canvas bounds
+      function constrainToCanvas(x: number, y: number): { x: number, y: number } {
+        return {
+          x: Math.max(0, Math.min(x, p.width)),
+          y: Math.max(0, Math.min(y, p.height))
+        };
+      }
+
+      // Helper function to check if a point is within canvas bounds
+      function isWithinCanvas(x: number, y: number): boolean {
+        return x >= 0 && x <= p.width && y >= 0 && y <= p.height;
+      }
+
       function isInsideRect(mx: number, my: number, obj: Shape) {
         if (obj.type !== "rect") return false;
         return mx >= obj.x && mx <= obj.x + obj.width && 
@@ -254,6 +267,8 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
       }
 
       p.mousePressed = () => {
+        // Don't start drawing if mouse is outside canvas
+        if (!isWithinCanvas(p.mouseX, p.mouseY)) return;
         if (p.mouseX < 220 && p.mouseY < 60) return;
         const currentTool = toolRef.current;
         selectedObjectIndex = null;
@@ -279,7 +294,6 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
           }
         }
 
-
         isDrawingNew = true;
         startX = p.mouseX;
         startY = p.mouseY;
@@ -296,21 +310,40 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
         if (selectedObjectIndex !== null) {
           const obj = shapesRef.current[selectedObjectIndex];
           if (obj.type === "rect") {
-            obj.x = p.mouseX - dragOffset.x;
-            obj.y = p.mouseY - dragOffset.y;
+            const newX = p.mouseX - dragOffset.x;
+            const newY = p.mouseY - dragOffset.y;
+            // Keep the shape within canvas bounds
+            obj.x = Math.max(0, Math.min(newX, p.width - obj.width));
+            obj.y = Math.max(0, Math.min(newY, p.height - obj.height));
           } else if (obj.type === "circle") {
-            obj.centerX = p.mouseX - dragOffset.x;
-            obj.centerY = p.mouseY - dragOffset.y;
+            const newCenterX = p.mouseX - dragOffset.x;
+            const newCenterY = p.mouseY - dragOffset.y;
+            // Keep the circle within canvas bounds
+            obj.centerX = Math.max(obj.radius, Math.min(newCenterX, p.width - obj.radius));
+            obj.centerY = Math.max(obj.radius, Math.min(newCenterY, p.height - obj.radius));
           } else if (obj.type === "triangle") {
             const dx = p.mouseX - dragOffset.x - obj.x1;
             const dy = p.mouseY - dragOffset.y - obj.y1;
-            obj.x1 += dx;
-            obj.y1 += dy;
-            obj.x2 += dx;
-            obj.y2 += dy;
-            obj.x3 += dx;
-            obj.y3 += dy;
-            dragOffset = { x: p.mouseX - obj.x1, y: p.mouseY - obj.y1 };
+            // Calculate new positions
+            const newX1 = obj.x1 + dx;
+            const newY1 = obj.y1 + dy;
+            const newX2 = obj.x2 + dx;
+            const newY2 = obj.y2 + dy;
+            const newX3 = obj.x3 + dx;
+            const newY3 = obj.y3 + dy;
+            
+            // Check if the entire triangle would be within bounds
+            if (isWithinCanvas(newX1, newY1) && 
+                isWithinCanvas(newX2, newY2) && 
+                isWithinCanvas(newX3, newY3)) {
+              obj.x1 = newX1;
+              obj.y1 = newY1;
+              obj.x2 = newX2;
+              obj.y2 = newY2;
+              obj.x3 = newX3;
+              obj.y3 = newY3;
+              dragOffset = { x: p.mouseX - obj.x1, y: p.mouseY - obj.y1 };
+            }
           }
           drawAllObjects(p, shapesRef.current);
           return;
@@ -319,47 +352,58 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
         if (!isDrawingNew) return;
 
         if (currentTool === "pencil" && drawing) {
+          // Constrain the line endpoints to canvas
+          const start = constrainToCanvas(prevX, prevY);
+          const end = constrainToCanvas(p.mouseX, p.mouseY);
+          
           // Draw the temporary line
           p.stroke(255);
-          p.line(prevX, prevY, p.mouseX, p.mouseY);
+          p.line(start.x, start.y, end.x, end.y);
           
           // Create and send the shape
           const newShape: Shape = {
             type: "pencil",
-            startX: prevX,
-            startY: prevY,
-            endX: p.mouseX,
-            endY: p.mouseY
+            startX: start.x,
+            startY: start.y,
+            endX: end.x,
+            endY: end.y
           };
           shapesRef.current.push(newShape);
           sendShapeToBackendAndSocket(roomId, newShape, socket);
           
           // Update previous position
-          prevX = p.mouseX;
-          prevY = p.mouseY;
+          prevX = end.x;
+          prevY = end.y;
         } else {
           // Preview shape while dragging
           drawAllObjects(p, shapesRef.current);
           p.stroke(255);
           if (currentTool === "rect") {
-            const width = p.mouseX - startX;
-            const height = p.mouseY - startY;
+            const width = Math.min(p.mouseX - startX, p.width - startX);
+            const height = Math.min(p.mouseY - startY, p.height - startY);
             p.rect(startX, startY, width, height);
           } else if (currentTool === "circle") {
-            const radius = Math.max(
-              Math.abs(p.mouseX - startX),
-              Math.abs(p.mouseY - startY)
-            ) / 2;
+            const maxRadius = Math.min(
+              Math.min(p.width - startX, startX),
+              Math.min(p.height - startY, startY)
+            );
+            const radius = Math.min(
+              Math.max(
+                Math.abs(p.mouseX - startX),
+                Math.abs(p.mouseY - startY)
+              ) / 2,
+              maxRadius
+            );
             const centerX = startX + (p.mouseX - startX) / 2;
             const centerY = startY + (p.mouseY - startY) / 2;
             p.circle(centerX, centerY, radius * 2);
           } else if (currentTool === "triangle") {
             const x1 = startX;
             const y1 = startY;
-            const x2 = p.mouseX;
-            const y2 = p.mouseY;
+            const x2 = Math.min(p.mouseX, p.width);
+            const y2 = Math.min(p.mouseY, p.height);
             const x3 = x1 + (x2 - x1) / 2;
-            const y3 = y1 - Math.abs(x2 - x1);
+            const y3 = Math.max(y1 - Math.abs(x2 - x1), 0);
             p.triangle(x1, y1, x2, y2, x3, y3);
           }
         }
@@ -377,8 +421,8 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
         let newShape: Shape | null = null;
 
         if (currentTool === "rect") {
-          const width = p.mouseX - startX;
-          const height = p.mouseY - startY;
+          const width = Math.min(p.mouseX - startX, p.width - startX);
+          const height = Math.min(p.mouseY - startY, p.height - startY);
           newShape = {
             type: "rect",
             x: startX,
@@ -387,10 +431,17 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
             height
           };
         } else if (currentTool === "circle") {
-          const radius = Math.max(
-            Math.abs(p.mouseX - startX),
-            Math.abs(p.mouseY - startY)
-          ) / 2;
+          const maxRadius = Math.min(
+            Math.min(p.width - startX, startX),
+            Math.min(p.height - startY, startY)
+          );
+          const radius = Math.min(
+            Math.max(
+              Math.abs(p.mouseX - startX),
+              Math.abs(p.mouseY - startY)
+            ) / 2,
+            maxRadius
+          );
           const centerX = startX + (p.mouseX - startX) / 2;
           const centerY = startY + (p.mouseY - startY) / 2;
           newShape = {
@@ -402,10 +453,10 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
         } else if (currentTool === "triangle") {
           const x1 = startX;
           const y1 = startY;
-          const x2 = p.mouseX;
-          const y2 = p.mouseY;
+          const x2 = Math.min(p.mouseX, p.width);
+          const y2 = Math.min(p.mouseY, p.height);
           const x3 = x1 + (x2 - x1) / 2;
-          const y3 = y1 - Math.abs(x2 - x1);
+          const y3 = Math.max(y1 - Math.abs(x2 - x1), 0);
           newShape = {
             type: "triangle",
             x1, y1, x2, y2, x3, y3
