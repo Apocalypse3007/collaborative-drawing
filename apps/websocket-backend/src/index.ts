@@ -97,6 +97,51 @@ wss.on('connection', function connection(ws, request) {
     console.log("message received")
     console.log(parsedData);
 
+    if (parsedData.type === "clear") {
+      const roomId = parsedData.roomId;
+      console.log("Received clear request for room:", roomId); 
+    
+      if (!roomId || isNaN(Number(roomId))) {
+        console.error("Invalid room ID for clear operation:", roomId);
+        return;
+      }
+      const user = users.find(u => u.ws === ws);
+      if (!user || !user.rooms.includes(roomId)) {
+        return;
+      }
+      try {
+        const result = await prismaClient.chat.deleteMany({
+          where: { roomID: Number(roomId) }
+        });
+
+        users.forEach(user => {
+          if (user.rooms.includes(roomId) && user.ws.readyState === WebSocket.OPEN) {
+            try {
+              user.ws.send(JSON.stringify({
+                type: "cleared",
+                roomId,
+                message: "All messages have been cleared."
+              }));
+              console.log(`Sent clear confirmation to user in room ${roomId}`); // Debug log
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        });
+        console.log(`Successfully cleared all messages in room ${roomId}`);
+      } catch (err) {
+        console.error(`Failed to clear messages in room ${roomId}:`, err);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "error",
+            message: "Failed to clear messages",
+            roomId
+          }));
+        }
+      }
+    }
+    
+
     if (parsedData.type === "chat") {
       const roomId = parsedData.roomId;
       const message = parsedData.message;

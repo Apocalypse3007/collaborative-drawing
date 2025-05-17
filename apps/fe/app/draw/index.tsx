@@ -50,12 +50,12 @@ async function getExistingShapes(roomId: string): Promise<Shape[]> {
         return [];                                                     // skip bad JSON
       }
     });
-  } catch (err: any) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 404) {
       console.warn(`GET ${url} → 404 (room not found)`);
       return [];                               // empty canvas instead of crash
     }
-    throw err;                                // bubble up anything else
+    throw e;                                // bubble up anything else
   }
 }
 
@@ -149,10 +149,16 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "chat") {
-      const parsedshape = JSON.parse(message.message)
-      shapesRef.current.push(parsedshape); 
-      if (p5InstanceRef.current) {
-        drawShape(p5InstanceRef.current, parsedshape);
+      const parsedshape = JSON.parse(message.message);
+      // Only add the shape if it's not already in the array
+      const isDuplicate = shapesRef.current.some(shape => 
+        JSON.stringify(shape) === JSON.stringify(parsedshape)
+      );
+      if (!isDuplicate) {
+        shapesRef.current.push(parsedshape);
+        if (p5InstanceRef.current) {
+          drawShape(p5InstanceRef.current, parsedshape);
+        }
       }
     }
   }
@@ -192,9 +198,14 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
       p.background(0);
     }
     try {
-      await axios.post(`${HTTP_BACKEND}/chats/${roomId}`, {
-        message: JSON.stringify({ type: "clear" })
-      });
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: "clear",
+          roomId: roomId
+        }));
+      } else {
+        console.error("WebSocket is not connected");
+      }
     } catch (error) {
       console.error("Error clearing canvas:", error);
     }
@@ -427,7 +438,7 @@ export default function CanvasPage({ roomId,socket }: CanvasPageProps) {
       <div
         style={{
           position: "absolute",
-          top: 8,
+          top: 80,
           left: 8,
           zIndex: 10,
           padding: "6px 10px",
